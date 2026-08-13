@@ -1,0 +1,9 @@
+package com.smartInvoice.auth_service.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+
+public record Verify2FaRequest(
+		@NotBlank String temporaryToken,
+		@NotBlank @Pattern(regexp = "\\d{6}", message = "2FA code must be 6 digits") String code) {
+}
