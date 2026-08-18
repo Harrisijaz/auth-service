@@ -34,7 +34,7 @@ import java.util.UUID;
 public class AuthService {
 	private static final String GENERIC_LOGIN_ERROR = "Invalid email or password";
 	private static final Duration USER_LOCK_TTL = Duration.ofMinutes(15);
-	private static final Duration ADMIN_LOCK_TTL = Duration.ofMinutes(30);
+	private static final Duration ADMIN_LOCK_TTL = Duration.ofMinutes(15);
 	private static final SecureRandom RANDOM = new SecureRandom();
 
 	private final UserRepository users;
@@ -296,6 +296,12 @@ public class AuthService {
 		return MessageResponse.of("User access revoked.");
 	}
 
+	public MessageResponse invalidateUserSessions(String userId) {
+		revokeAllSessions(userId);
+		redis.put("blacklist:user:" + userId, "blocked", Duration.ofHours(24));
+		return MessageResponse.of("User sessions invalidated.");
+	}
+
 	private AuthResponse authResponse(String message, User user) {
 		return new AuthResponse(message, jwtService.issueAccessToken(user), user.isEmailVerified(), userInfo(user));
 	}
@@ -354,13 +360,13 @@ public class AuthService {
 	private void enforceLock(String email, String ip, boolean admin) {
 		if (redis.get(lockKey(email, ip, admin)).isPresent()) {
 			throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "ACCOUNT_LOCKED",
-					admin ? "Account is locked for 30 minutes. Try again later." : "Account is locked for 15 minutes. Try again later.");
+					"Account is locked for 15 minutes. Try again later.");
 		}
 	}
 
 	private void recordFailedLogin(String userId, String email, String ip, boolean admin, RequestMetadata metadata) {
 		Duration ttl = admin ? ADMIN_LOCK_TTL : USER_LOCK_TTL;
-		int threshold = admin ? 3 : 5;
+		int threshold = 5;
 		long failures = redis.increment(rateKey(email, ip, admin), ttl);
 		redis.increment("ratelimit:login-ip:" + ip, ttl);
 		if (failures >= threshold) {
