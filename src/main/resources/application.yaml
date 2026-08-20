@@ -47,6 +47,6 @@ auth:
   bcrypt-strength: ${AUTH_BCRYPT_STRENGTH:12}
   jwt-key-id: ${AUTH_JWT_KEY_ID:smart-invoice-auth-key}
   jwt-private-key: ${AUTH_JWT_PRIVATE_KEY:}
-  token-encryption-enabled: ${AUTH_TOKEN_ENCRYPTION_ENABLED:true}
+  token-encryption-enabled: ${AUTH_TOKEN_ENCRYPTION_ENABLED:false}
   jwe-secret: ${AUTH_JWE_SECRET:}
   dev-return-tokens: ${AUTH_DEV_RETURN_TOKENS:true}
