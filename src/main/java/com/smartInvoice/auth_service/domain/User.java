@@ -43,6 +43,12 @@ public class User {
 	@Column(nullable = false)
 	private boolean emailVerified;
 
+	@Column(length = 1024)
+	private String profilePictureUrl;
+
+	@Column(nullable = false)
+	private boolean trusted;
+
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt;
 
@@ -74,6 +80,10 @@ public class User {
 	public void setStatus(UserStatus status) { this.status = status; }
 	public boolean isEmailVerified() { return emailVerified; }
 	public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
+	public String getProfilePictureUrl() { return profilePictureUrl; }
+	public void setProfilePictureUrl(String profilePictureUrl) { this.profilePictureUrl = profilePictureUrl; }
+	public boolean isTrusted() { return trusted; }
+	public void setTrusted(boolean trusted) { this.trusted = trusted; }
 	public Instant getCreatedAt() { return createdAt; }
 	public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 	public Instant getDeletedAt() { return deletedAt; }

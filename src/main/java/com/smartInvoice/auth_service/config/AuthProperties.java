@@ -7,17 +7,19 @@ public class AuthProperties {
 	private String issuer = "smart-invoice-auth";
 	private String appBaseUrl = "http://localhost:3000";
 	private String mailFrom = "no-reply@smartinvoice.local";
-	private int accessTokenMinutes = 5;
-	private int adminAccessTokenMinutes = 5;
+	private int accessTokenMinutes = 60;
+	private int adminAccessTokenMinutes = 10;
 	private int temporaryTokenMinutes = 5;
-	private int emailTokenHours = 24;
+	private int emailCodeMinutes = 15;
 	private int resetTokenMinutes = 15;
+	private int refreshTokenDays = 7;
 	private int bcryptStrength = 12;
 	private String jwtKeyId = "smart-invoice-auth-key";
 	private String jwtPrivateKey = "";
 	private boolean tokenEncryptionEnabled = true;
 	private String jweSecret = "";
 	private boolean devReturnTokens = true;
+	private String profilePictureUploadBaseUrl = "https://s3.amazonaws.com/smartinvoice-local";
 
 	public String getIssuer() { return issuer; }
 	public void setIssuer(String issuer) { this.issuer = issuer; }
@@ -31,10 +33,12 @@ public class AuthProperties {
 	public void setAdminAccessTokenMinutes(int adminAccessTokenMinutes) { this.adminAccessTokenMinutes = adminAccessTokenMinutes; }
 	public int getTemporaryTokenMinutes() { return temporaryTokenMinutes; }
 	public void setTemporaryTokenMinutes(int temporaryTokenMinutes) { this.temporaryTokenMinutes = temporaryTokenMinutes; }
-	public int getEmailTokenHours() { return emailTokenHours; }
-	public void setEmailTokenHours(int emailTokenHours) { this.emailTokenHours = emailTokenHours; }
+	public int getEmailCodeMinutes() { return emailCodeMinutes; }
+	public void setEmailCodeMinutes(int emailCodeMinutes) { this.emailCodeMinutes = emailCodeMinutes; }
 	public int getResetTokenMinutes() { return resetTokenMinutes; }
 	public void setResetTokenMinutes(int resetTokenMinutes) { this.resetTokenMinutes = resetTokenMinutes; }
+	public int getRefreshTokenDays() { return refreshTokenDays; }
+	public void setRefreshTokenDays(int refreshTokenDays) { this.refreshTokenDays = refreshTokenDays; }
 	public int getBcryptStrength() { return bcryptStrength; }
 	public void setBcryptStrength(int bcryptStrength) { this.bcryptStrength = bcryptStrength; }
 	public String getJwtKeyId() { return jwtKeyId; }
@@ -47,4 +51,6 @@ public class AuthProperties {
 	public void setJweSecret(String jweSecret) { this.jweSecret = jweSecret; }
 	public boolean isDevReturnTokens() { return devReturnTokens; }
 	public void setDevReturnTokens(boolean devReturnTokens) { this.devReturnTokens = devReturnTokens; }
+	public String getProfilePictureUploadBaseUrl() { return profilePictureUploadBaseUrl; }
+	public void setProfilePictureUploadBaseUrl(String profilePictureUploadBaseUrl) { this.profilePictureUploadBaseUrl = profilePictureUploadBaseUrl; }
 }

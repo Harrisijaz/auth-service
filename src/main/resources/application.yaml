@@ -23,12 +23,15 @@ spring:
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:harisijaz278@gmail.com}
-    password: ${MAIL_PASSWORD:pqcksbawpltbdlay}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
           auth: true
+          connectiontimeout: ${MAIL_CONNECTION_TIMEOUT:2000}
+          timeout: ${MAIL_READ_TIMEOUT:2000}
+          writetimeout: ${MAIL_WRITE_TIMEOUT:2000}
           starttls:
             enable: true
 
@@ -39,14 +42,16 @@ auth:
   app-base-url: ${AUTH_APP_BASE_URL:http://localhost:3000}
   mail-from: ${AUTH_MAIL_FROM:no-reply@smartinvoice.local}
   issuer: ${AUTH_ISSUER:smart-invoice-auth}
-  access-token-minutes: ${AUTH_ACCESS_TOKEN_MINUTES:5}
-  admin-access-token-minutes: ${AUTH_ADMIN_ACCESS_TOKEN_MINUTES:5}
+  access-token-minutes: ${AUTH_ACCESS_TOKEN_MINUTES:60}
+  admin-access-token-minutes: ${AUTH_ADMIN_ACCESS_TOKEN_MINUTES:10}
   temporary-token-minutes: ${AUTH_TEMPORARY_TOKEN_MINUTES:5}
-  email-token-hours: ${AUTH_EMAIL_TOKEN_HOURS:24}
+  email-code-minutes: ${AUTH_EMAIL_CODE_MINUTES:15}
   reset-token-minutes: ${AUTH_RESET_TOKEN_MINUTES:15}
+  refresh-token-days: ${AUTH_REFRESH_TOKEN_DAYS:7}
   bcrypt-strength: ${AUTH_BCRYPT_STRENGTH:12}
   jwt-key-id: ${AUTH_JWT_KEY_ID:smart-invoice-auth-key}
   jwt-private-key: ${AUTH_JWT_PRIVATE_KEY:}
   token-encryption-enabled: ${AUTH_TOKEN_ENCRYPTION_ENABLED:false}
   jwe-secret: ${AUTH_JWE_SECRET:}
   dev-return-tokens: ${AUTH_DEV_RETURN_TOKENS:true}
+  profile-picture-upload-base-url: ${AUTH_PROFILE_PICTURE_UPLOAD_BASE_URL:https://s3.amazonaws.com/smartinvoice-local}

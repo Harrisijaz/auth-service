@@ -42,6 +42,7 @@ import java.util.UUID;
 @Service
 public class JwtService {
 	public static final String TYPE_ACCESS = "access";
+	public static final String TYPE_REFRESH = "refresh";
 	public static final String TYPE_LOGIN_2FA = "login_2fa";
 
 	private final AuthProperties properties;
@@ -65,6 +66,10 @@ public class JwtService {
 				? properties.getAdminAccessTokenMinutes()
 				: properties.getAccessTokenMinutes();
 		return issue(user, TYPE_ACCESS, Duration.ofMinutes(minutes), UUID.randomUUID().toString());
+	}
+
+	public String issueRefreshToken(User user, String jti) {
+		return issue(user, TYPE_REFRESH, Duration.ofDays(properties.getRefreshTokenDays()), jti);
 	}
 
 	public String issueLoginTemporaryToken(User user, String jti) {

@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -40,10 +41,17 @@ public class GlobalExceptionHandler {
 				.body(ApiError.of("UNAUTHORIZED", ex.getHeaderName() + " header is required"));
 	}
 
+	@ExceptionHandler(DataAccessException.class)
+	ResponseEntity<ApiError> handleDatabase(DataAccessException ex) {
+		log.error("Database access failed", ex);
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+				.body(ApiError.of("DATABASE_UNAVAILABLE", "Auth service database is unavailable. Check the database connection."));
+	}
+
 	@ExceptionHandler(Exception.class)
 	ResponseEntity<ApiError> handleUnexpected(Exception ex) {
 		log.error("Unhandled API exception", ex);
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-				.body(ApiError.of("INTERNAL_ERROR", "Something went wrong"));
+				.body(ApiError.of("INTERNAL_ERROR", "Auth service failed unexpectedly. Check server logs for the root cause."));
 	}
 }

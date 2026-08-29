@@ -31,15 +31,13 @@ public class EmailDispatchService {
 		this.mailUsername = mailUsername;
 	}
 
-	public void sendVerification(String email, String token) {
-		String link = authProperties.getAppBaseUrl() + "/verify-email?token=" + token;
+	public void sendVerification(String email, String code) {
 		sendTemplate(email, "Verify your SmartInvoice email", "email-verification.html", Map.of(
 				"preheader", "Verify your email address to activate your SmartInvoice account.",
 				"title", "Verify your email",
-				"intro", "Thanks for creating your SmartInvoice account. Confirm this email address to finish setup.",
-				"buttonText", "Verify email",
-				"actionUrl", link,
-				"expiry", authProperties.getEmailTokenHours() + " hours"));
+				"intro", "Thanks for creating your SmartInvoice account. Enter this code to finish setup.",
+				"code", code,
+				"expiry", authProperties.getEmailCodeMinutes() + " minutes"));
 	}
 
 	public void sendPasswordReset(String email, String token) {

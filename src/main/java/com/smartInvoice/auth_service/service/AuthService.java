@@ -11,12 +11,22 @@ import com.smartInvoice.auth_service.dto.EmailRequest;
 import com.smartInvoice.auth_service.dto.Login2FaResponse;
 import com.smartInvoice.auth_service.dto.LoginRequest;
 import com.smartInvoice.auth_service.dto.MessageResponse;
+import com.smartInvoice.auth_service.dto.ProfilePictureConfirmRequest;
+import com.smartInvoice.auth_service.dto.ProfilePictureUploadUrlRequest;
+import com.smartInvoice.auth_service.dto.ProfilePictureUploadUrlResponse;
+import com.smartInvoice.auth_service.dto.ProfileResponse;
+import com.smartInvoice.auth_service.dto.ProfileUpdateRequest;
+import com.smartInvoice.auth_service.dto.RefreshTokenRequest;
 import com.smartInvoice.auth_service.dto.ResetPasswordRequest;
 import com.smartInvoice.auth_service.dto.SignupRequest;
+import com.smartInvoice.auth_service.dto.TokenPairResponse;
 import com.smartInvoice.auth_service.dto.UserInfoResponse;
+import com.smartInvoice.auth_service.dto.VerifyEmailRequest;
 import com.smartInvoice.auth_service.repo.UserRepository;
 import com.smartInvoice.auth_service.web.ApiException;
 import com.smartInvoice.auth_service.web.RequestMetadata;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -32,9 +42,10 @@ import java.util.UUID;
 
 @Service
 public class AuthService {
+	private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 	private static final String GENERIC_LOGIN_ERROR = "Invalid email or password";
 	private static final Duration USER_LOCK_TTL = Duration.ofMinutes(15);
-	private static final Duration ADMIN_LOCK_TTL = Duration.ofMinutes(15);
+	private static final Duration ADMIN_LOCK_TTL = Duration.ofMinutes(30);
 	private static final SecureRandom RANDOM = new SecureRandom();
 
 	private final UserRepository users;
@@ -78,33 +89,43 @@ public class AuthService {
 		try {
 			users.saveAndFlush(user);
 		} catch (DataIntegrityViolationException ex) {
-			throw conflict("Email already registered");
+			log.warn("Signup failed due to data integrity violation for email {}", email, ex);
+			if (users.findByEmailNormalized(email).isPresent()) {
+				throw conflict("Email already registered");
+			}
+			throw new ApiException(HttpStatus.CONFLICT, "SIGNUP_DATA_CONFLICT",
+					"Signup failed because a database constraint was violated: " + rootCauseMessage(ex));
 		}
-		String token = issueEmailVerification(user, metadata);
+		String code = issueEmailVerification(user, metadata);
 		events.log(user.getId(), AuthEventType.SIGNUP, metadata);
-		return new MessageResponse("Signup successful. Please verify your email.", devToken(token));
+		return new MessageResponse("Signup successful. Please verify your email.", devToken(code));
 	}
 
 	@Transactional
-	public MessageResponse verifyEmail(String token, RequestMetadata metadata) {
-		if (token == null || token.isBlank()) {
-			throw badRequest("Verification token is required");
-		}
-		String userId = redis.get("otp:verify-token:" + token)
-				.orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "TOKEN_EXPIRED", "This link has expired"));
-		User user = users.findById(userId).orElseThrow(() -> badRequest("Invalid verification token"));
+	public MessageResponse verifyEmail(VerifyEmailRequest request, RequestMetadata metadata) {
+		String email = validation.normalizeEmail(request.email());
+		User user = users.findByEmailNormalized(email).orElseThrow(() -> badRequest("Invalid verification code"));
 		if (user.isEmailVerified()) {
 			return MessageResponse.of("Your email is already verified.");
 		}
-		String currentToken = redis.get("otp:verify:" + user.getId()).orElse("");
-		if (!token.equals(currentToken)) {
-			throw badRequest("Invalid verification token");
+		String key = "otp:verify:" + user.getId();
+		String stored = redis.get(key)
+				.orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "TOKEN_EXPIRED", "This code has expired. Request a new one."));
+		String[] parts = stored.split("\\|");
+		int attempts = Integer.parseInt(parts[1]);
+		if (!parts[0].equals(request.code())) {
+			attempts++;
+			if (attempts >= 5) {
+				redis.delete(key);
+				throw tooMany("Too many incorrect attempts. Request a new verification code.");
+			}
+			redis.put(key, parts[0] + "|" + attempts, Duration.ofMinutes(properties.getEmailCodeMinutes()));
+			throw badRequest("Invalid verification code");
 		}
 		user.setEmailVerified(true);
 		user.setStatus(UserStatus.ACTIVE);
 		users.save(user);
-		redis.delete("otp:verify:" + user.getId());
-		redis.delete("otp:verify-token:" + token);
+		redis.delete(key);
 		events.log(user.getId(), AuthEventType.EMAIL_VERIFIED, metadata);
 		return MessageResponse.of("Your email has been verified.");
 	}
@@ -120,11 +141,11 @@ public class AuthService {
 		if (attempts > 3) {
 			throw tooMany("Too many verification requests. Try again later.");
 		}
-		String token = issueEmailVerification(user, metadata);
-		return new MessageResponse("Verification email sent.", devToken(token));
+		String code = issueEmailVerification(user, metadata);
+		return new MessageResponse("Verification email sent.", devToken(code));
 	}
 
-	public Login2FaResponse login(LoginRequest request, RequestMetadata metadata) {
+	public AuthResponse login(LoginRequest request, RequestMetadata metadata) {
 		String email = validation.normalizeEmail(request.email());
 		String ip = metadata.ipAddress();
 		enforceLock(email, ip, false);
@@ -135,14 +156,8 @@ public class AuthService {
 		}
 		assertLoginAllowed(user);
 		clearLoginCounters(email, ip);
-		String jti = UUID.randomUUID().toString();
-		String code = redis.randomDigits(6);
-		redis.put("otp:2fa:" + jti, user.getId() + "|" + code + "|0",
-				Duration.ofMinutes(properties.getTemporaryTokenMinutes()));
-		String temporaryToken = jwtService.issueLoginTemporaryToken(user, jti);
-		emailDispatch.sendUser2FaCode(user.getEmailNormalized(), code);
-		events.log(user.getId(), AuthEventType.USER_2FA_SENT, metadata);
-		return new Login2FaResponse("2FA code sent.", temporaryToken, properties.isDevReturnTokens() ? code : null, userInfo(user));
+		events.log(user.getId(), AuthEventType.LOGIN_SUCCESS, metadata);
+		return authResponse("Login successful.", user);
 	}
 
 	public AuthResponse adminLogin(LoginRequest request, RequestMetadata metadata) {
@@ -214,10 +229,38 @@ public class AuthService {
 		return authResponse("2FA verified.", user);
 	}
 
-	public MessageResponse logout(String accessToken, RequestMetadata metadata) {
+	public MessageResponse logout(String accessToken, RefreshTokenRequest request, RequestMetadata metadata) {
 		AuthenticatedUser principal = requireAccess(accessToken);
+		if (request != null && request.refreshToken() != null && !request.refreshToken().isBlank()) {
+			revokeRefreshToken(request.refreshToken(), principal.userId());
+		}
 		events.log(principal.userId(), AuthEventType.LOGOUT, metadata);
 		return MessageResponse.of("Logged out.");
+	}
+
+	public MessageResponse logout(String accessToken, RequestMetadata metadata) {
+		return logout(accessToken, null, metadata);
+	}
+
+	public TokenPairResponse refresh(RefreshTokenRequest request, RequestMetadata metadata) {
+		AuthenticatedUser principal = jwtService.verify(request.refreshToken(), JwtService.TYPE_REFRESH);
+		String key = "refresh:" + principal.jti();
+		String userId = redis.get(key).orElse(null);
+		if (userId == null) {
+			revokeAllSessions(principal.userId());
+			events.log(principal.userId(), AuthEventType.REFRESH_REUSE_DETECTED, metadata);
+			throw unauthorized("Refresh token is invalid. Please log in again.");
+		}
+		if (!principal.userId().equals(userId)) {
+			revokeAllSessions(principal.userId());
+			throw unauthorized("Refresh token is invalid. Please log in again.");
+		}
+		User user = users.findById(userId).orElseThrow(() -> unauthorized("Invalid refresh token"));
+		assertLoginAllowed(user);
+		redis.delete(key);
+		TokenPair tokens = issueTokenPair(user);
+		events.log(user.getId(), AuthEventType.TOKEN_REFRESH, metadata);
+		return new TokenPairResponse("Token refreshed.", tokens.accessToken(), tokens.refreshToken(), userInfo(user));
 	}
 
 	public MessageResponse logoutAll(String accessToken, RequestMetadata metadata) {
@@ -291,6 +334,62 @@ public class AuthService {
 		return principal;
 	}
 
+	public ProfileResponse profile(String accessToken) {
+		User user = currentUser(accessToken);
+		return profileResponse(user);
+	}
+
+	@Transactional
+	public ProfileResponse updateProfile(String accessToken, ProfileUpdateRequest request, RequestMetadata metadata) {
+		validation.validateFullName(request.displayName());
+		User user = currentUser(accessToken);
+		user.setFullName(request.displayName().trim());
+		users.save(user);
+		events.log(user.getId(), AuthEventType.PROFILE_UPDATED, metadata);
+		return profileResponse(user);
+	}
+
+	public ProfilePictureUploadUrlResponse profilePictureUploadUrl(String accessToken,
+			ProfilePictureUploadUrlRequest request, RequestMetadata metadata) {
+		User user = currentUser(accessToken);
+		validateProfilePicture(request);
+		long attempts = redis.increment("ratelimit:profile-picture:" + user.getId(), Duration.ofHours(1));
+		if (attempts > 10) {
+			throw tooMany("Too many profile picture upload requests. Try again later.");
+		}
+		String extension = extension(request.fileName());
+		String objectKey = "profile-pictures/" + user.getId() + "/" + UUID.randomUUID() + "." + extension;
+		String base = properties.getProfilePictureUploadBaseUrl().replaceAll("/+$", "");
+		String publicUrl = base + "/" + objectKey;
+		redis.put("profile-picture-upload:" + user.getId() + ":" + objectKey, publicUrl,
+				Duration.ofMinutes(5));
+		events.log(user.getId(), AuthEventType.PROFILE_PICTURE_UPLOAD_REQUESTED, metadata);
+		return new ProfilePictureUploadUrlResponse(publicUrl, objectKey, publicUrl, "PUT",
+				Instant.now().plus(Duration.ofMinutes(5)));
+	}
+
+	@Transactional
+	public ProfileResponse confirmProfilePicture(String accessToken, ProfilePictureConfirmRequest request,
+			RequestMetadata metadata) {
+		User user = currentUser(accessToken);
+		String key = "profile-picture-upload:" + user.getId() + ":" + request.objectKey();
+		String publicUrl = redis.get(key).orElseThrow(() -> badRequest("Profile picture upload URL is expired or invalid"));
+		user.setProfilePictureUrl(publicUrl);
+		users.save(user);
+		redis.delete(key);
+		events.log(user.getId(), AuthEventType.PROFILE_PICTURE_UPDATED, metadata);
+		return profileResponse(user);
+	}
+
+	@Transactional
+	public ProfileResponse removeProfilePicture(String accessToken, RequestMetadata metadata) {
+		User user = currentUser(accessToken);
+		user.setProfilePictureUrl(null);
+		users.save(user);
+		events.log(user.getId(), AuthEventType.PROFILE_PICTURE_REMOVED, metadata);
+		return profileResponse(user);
+	}
+
 	public MessageResponse blacklistUser(String userId) {
 		redis.put("blacklist:user:" + userId, "blocked", Duration.ofHours(24));
 		return MessageResponse.of("User access revoked.");
@@ -303,7 +402,7 @@ public class AuthService {
 	}
 
 	private AuthResponse authResponse(String message, User user) {
-		return new AuthResponse(message, jwtService.issueAccessToken(user), user.isEmailVerified(), userInfo(user));
+		return new AuthResponse(message, jwtService.issueAccessToken(user), null, user.isEmailVerified(), userInfo(user));
 	}
 
 	private UserInfoResponse userInfo(User user) {
@@ -317,11 +416,11 @@ public class AuthService {
 	}
 
 	private String issueEmailVerification(User user, RequestMetadata metadata) {
-		String token = randomToken();
-		replaceSingleUseToken("otp:verify", user.getId(), token, Duration.ofHours(properties.getEmailTokenHours()));
-		emailDispatch.sendVerification(user.getEmailNormalized(), token);
+		String code = redis.randomDigits(6);
+		redis.put("otp:verify:" + user.getId(), code + "|0", Duration.ofMinutes(properties.getEmailCodeMinutes()));
+		emailDispatch.sendVerification(user.getEmailNormalized(), code);
 		events.log(user.getId(), AuthEventType.EMAIL_VERIFICATION_SENT, metadata);
-		return token;
+		return code;
 	}
 
 	private void replaceSingleUseToken(String prefix, String userId, String token, Duration ttl) {
@@ -336,6 +435,14 @@ public class AuthService {
 		redis.delete("refresh-index:" + userId);
 	}
 
+	private void revokeRefreshToken(String refreshToken, String expectedUserId) {
+		AuthenticatedUser principal = jwtService.verify(refreshToken, JwtService.TYPE_REFRESH);
+		if (!expectedUserId.equals(principal.userId())) {
+			throw unauthorized("Refresh token does not belong to this session");
+		}
+		redis.delete("refresh:" + principal.jti());
+	}
+
 	private void checkSignupRate(RequestMetadata metadata) {
 		long attempts = redis.increment("ratelimit:signup:" + metadata.ipAddress(), Duration.ofHours(1));
 		if (attempts > 5) {
@@ -348,13 +455,28 @@ public class AuthService {
 		if (existing == null) {
 			return;
 		}
-		if (existing.getStatus() == UserStatus.DELETED && existing.getDeletedAt() != null
-				&& existing.getDeletedAt().isBefore(Instant.now().minus(Duration.ofDays(30)))) {
-			existing.setEmailNormalized("deleted:" + existing.getId() + ":" + existing.getEmailNormalized());
-			users.saveAndFlush(existing);
+		if (existing.getStatus() == UserStatus.UNVERIFIED && !existing.isEmailVerified()
+				&& existing.getCreatedAt() != null
+				&& existing.getCreatedAt().isBefore(Instant.now().minus(Duration.ofDays(30)))) {
+			freeEmail(existing, "stale-unverified");
 			return;
 		}
+		if (existing.getStatus() == UserStatus.DELETED) {
+			freeEmail(existing, "deleted");
+			return;
+		}
+		if (existing.getStatus() == UserStatus.UNVERIFIED && !existing.isEmailVerified()) {
+			throw conflict("Account already exists but is not verified. Please verify your email or resend the code.");
+		}
 		throw conflict("Email already registered");
+	}
+
+	private void freeEmail(User existing, String reason) {
+		if (!existing.getEmailNormalized().startsWith(reason + ":")) {
+			existing.setEmailNormalized(reason + ":" + existing.getId() + ":" + existing.getEmailNormalized());
+			existing.setEmail(reason + ":" + existing.getId() + ":" + existing.getEmail());
+			users.saveAndFlush(existing);
+		}
 	}
 
 	private void enforceLock(String email, String ip, boolean admin) {
@@ -366,7 +488,7 @@ public class AuthService {
 
 	private void recordFailedLogin(String userId, String email, String ip, boolean admin, RequestMetadata metadata) {
 		Duration ttl = admin ? ADMIN_LOCK_TTL : USER_LOCK_TTL;
-		int threshold = 5;
+		int threshold = admin ? 3 : 5;
 		long failures = redis.increment(rateKey(email, ip, admin), ttl);
 		redis.increment("ratelimit:login-ip:" + ip, ttl);
 		if (failures >= threshold) {
@@ -389,6 +511,9 @@ public class AuthService {
 	}
 
 	private void assertLoginAllowed(User user) {
+		if (!user.isEmailVerified() || user.getStatus() == UserStatus.UNVERIFIED) {
+			throw new ApiException(HttpStatus.FORBIDDEN, "EMAIL_NOT_VERIFIED", "Please verify your email before logging in.");
+		}
 		if (user.getStatus() == UserStatus.BLOCKED) {
 			throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SUSPENDED", "Your account has been suspended. Contact support.");
 		}
@@ -405,6 +530,59 @@ public class AuthService {
 
 	private String devToken(String token) {
 		return properties.isDevReturnTokens() ? token : null;
+	}
+
+	private String rootCauseMessage(Exception ex) {
+		Throwable cause = ex;
+		while (cause.getCause() != null) {
+			cause = cause.getCause();
+		}
+		String message = cause.getMessage();
+		return cause.getClass().getSimpleName() + (message == null || message.isBlank() ? "" : " - " + message);
+	}
+
+	private TokenPair issueTokenPair(User user) {
+		String refreshJti = UUID.randomUUID().toString();
+		String refreshToken = jwtService.issueRefreshToken(user, refreshJti);
+		Duration ttl = Duration.ofDays(properties.getRefreshTokenDays());
+		redis.put("refresh:" + refreshJti, user.getId(), ttl);
+		redis.addToSet("refresh-index:" + user.getId(), refreshJti, ttl);
+		return new TokenPair(jwtService.issueAccessToken(user), refreshToken);
+	}
+
+	private User currentUser(String accessToken) {
+		AuthenticatedUser principal = requireAccess(accessToken);
+		return users.findById(principal.userId()).orElseThrow(() -> unauthorized("Invalid token"));
+	}
+
+	private ProfileResponse profileResponse(User user) {
+		return new ProfileResponse(user.getId(), user.getFullName(), user.getEmailNormalized(),
+				user.getProfilePictureUrl(), user.getCreatedAt());
+	}
+
+	private void validateProfilePicture(ProfilePictureUploadUrlRequest request) {
+		if (request.sizeBytes() > 2 * 1024 * 1024) {
+			throw badRequest("Profile picture must be 2MB or smaller");
+		}
+		String contentType = request.contentType().toLowerCase();
+		if (!List.of("image/png", "image/jpeg", "image/jpg", "image/webp").contains(contentType)) {
+			throw badRequest("Profile picture must be PNG, JPG, JPEG, or WEBP");
+		}
+		String extension = extension(request.fileName());
+		if (!List.of("png", "jpg", "jpeg", "webp").contains(extension)) {
+			throw badRequest("Profile picture file extension must be png, jpg, jpeg, or webp");
+		}
+	}
+
+	private String extension(String fileName) {
+		int dot = fileName == null ? -1 : fileName.lastIndexOf('.');
+		if (dot < 0 || dot == fileName.length() - 1) {
+			throw badRequest("Profile picture file extension is required");
+		}
+		return fileName.substring(dot + 1).toLowerCase();
+	}
+
+	private record TokenPair(String accessToken, String refreshToken) {
 	}
 
 	private ApiException conflict(String message) {
