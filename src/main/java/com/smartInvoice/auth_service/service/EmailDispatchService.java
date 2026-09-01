@@ -1,12 +1,15 @@
 package com.smartInvoice.auth_service.service;
 
 import com.smartInvoice.auth_service.config.AuthProperties;
+import com.smartInvoice.auth_service.dto.ContactUsRequest;
+import com.smartInvoice.auth_service.web.ApiException;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.HttpStatus;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -74,6 +77,27 @@ public class EmailDispatchService {
 				"intro", "Your SmartInvoice password was changed successfully. For security, all existing sessions were signed out."));
 	}
 
+	public void sendContactMessage(ContactUsRequest request) {
+		if (mailUsername == null || mailUsername.isBlank()) {
+			throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "MAIL_NOT_CONFIGURED",
+					"Contact email is not configured. Set MAIL_USERNAME and MAIL_PASSWORD.");
+		}
+		try {
+			MimeMessage message = mailSender.createMimeMessage();
+			MimeMessageHelper helper = new MimeMessageHelper(message, false, StandardCharsets.UTF_8.name());
+			helper.setFrom(authProperties.getMailFrom());
+			helper.setTo(authProperties.getContactRecipientEmail());
+			helper.setReplyTo(request.email());
+			helper.setSubject("SmartInvoice contact request from " + request.name());
+			helper.setText(contactPlainText(request), false);
+			mailSender.send(message);
+		} catch (MessagingException | RuntimeException ex) {
+			log.warn("Unable to send contact message from {}: {}", request.email(), ex.getMessage());
+			throw new ApiException(HttpStatus.BAD_GATEWAY, "MAIL_SEND_FAILED",
+					"Unable to send contact message. Check SMTP configuration.");
+		}
+	}
+
 	private void sendTemplate(String to, String subject, String templateName, Map<String, String> values) {
 		if (mailUsername == null || mailUsername.isBlank()) {
 			log.warn("SMTP username is not configured. Skipping email '{}' to {}", subject, to);
@@ -122,6 +146,15 @@ public class EmailDispatchService {
 			text.append("\n\nExpires in ").append(values.get("expiry")).append(".");
 		}
 		return text.toString();
+	}
+
+	private String contactPlainText(ContactUsRequest request) {
+		String topic = request.topic() == null || request.topic().isBlank() ? "Not specified" : request.topic().trim();
+		return "New SmartInvoice contact request\n\n"
+				+ "Name: " + request.name().trim() + "\n"
+				+ "Email: " + request.email().trim() + "\n"
+				+ "Topic: " + topic + "\n\n"
+				+ "Message:\n" + request.message().trim();
 	}
 
 	private String escapeHtml(String value) {

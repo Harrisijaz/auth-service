@@ -1,4 +1,10 @@
 spring:
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:auth-service/.env[.properties]
+      - optional:file:src/main/resources/.env[.properties]
+      - optional:file:auth-service/src/main/resources/.env[.properties]
   application:
     name: auth-service
   datasource:
@@ -41,6 +47,7 @@ server:
 auth:
   app-base-url: ${AUTH_APP_BASE_URL:http://localhost:3000}
   mail-from: ${AUTH_MAIL_FROM:no-reply@smartinvoice.local}
+  contact-recipient-email: ${CONTACT_RECIPIENT_EMAIL:harisijaz278@gmail.com}
   issuer: ${AUTH_ISSUER:smart-invoice-auth}
   access-token-minutes: ${AUTH_ACCESS_TOKEN_MINUTES:60}
   admin-access-token-minutes: ${AUTH_ADMIN_ACCESS_TOKEN_MINUTES:10}

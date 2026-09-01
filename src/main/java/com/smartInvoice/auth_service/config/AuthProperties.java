@@ -7,6 +7,7 @@ public class AuthProperties {
 	private String issuer = "smart-invoice-auth";
 	private String appBaseUrl = "http://localhost:3000";
 	private String mailFrom = "no-reply@smartinvoice.local";
+	private String contactRecipientEmail = "harisijaz278@gmail.com";
 	private int accessTokenMinutes = 60;
 	private int adminAccessTokenMinutes = 10;
 	private int temporaryTokenMinutes = 5;
@@ -27,6 +28,8 @@ public class AuthProperties {
 	public void setAppBaseUrl(String appBaseUrl) { this.appBaseUrl = appBaseUrl; }
 	public String getMailFrom() { return mailFrom; }
 	public void setMailFrom(String mailFrom) { this.mailFrom = mailFrom; }
+	public String getContactRecipientEmail() { return contactRecipientEmail; }
+	public void setContactRecipientEmail(String contactRecipientEmail) { this.contactRecipientEmail = contactRecipientEmail; }
 	public int getAccessTokenMinutes() { return accessTokenMinutes; }
 	public void setAccessTokenMinutes(int accessTokenMinutes) { this.accessTokenMinutes = accessTokenMinutes; }
 	public int getAdminAccessTokenMinutes() { return adminAccessTokenMinutes; }
